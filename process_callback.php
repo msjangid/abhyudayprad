@@ -1,68 +1,88 @@
 <?php
 // Enable error reporting for debugging
 error_reporting(E_ALL);
-ini_set('display_errors', 0); // Don't display errors to users
+ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
 // Set response header
 header('Content-Type: application/json');
 
-// Get form data
-$data = $_POST;
-
-// Validate required fields
-if (empty($data['fullName']) || empty($data['mobileNumber']) || empty($data['email'])) {
-    echo json_encode(['success' => false, 'message' => 'Please fill all required fields']);
-    exit;
-}
-
-// Sanitize input data
-$callback = [
-    'id' => uniqid('CB_', true),
-    'timestamp' => date('Y-m-d H:i:s'),
-    'date' => date('Y-m-d'),
-    'fullName' => sanitize_input($data['fullName']),
-    'mobileNumber' => sanitize_input($data['mobileNumber']),
-    'email' => sanitize_input($data['email']),
-    'businessName' => sanitize_input($data['businessName'] ?? ''),
-    'requirement' => sanitize_input($data['requirement'] ?? ''),
-    'message' => sanitize_input($data['message'] ?? ''),
-    'status' => 'pending'
-];
-
 // Path to callbacks log file
 $callbacksFile = __DIR__ . '/callbacks.json';
 
-// Read existing callbacks
-$callbacks = [];
-if (file_exists($callbacksFile)) {
-    $content = file_get_contents($callbacksFile);
-    if (!empty($content)) {
-        $callbacks = json_decode($content, true);
-        if (!is_array($callbacks)) {
-            $callbacks = [];
+// Handle GET request - retrieve all callbacks
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    if (isset($_GET['action']) && $_GET['action'] === 'get_all') {
+        if (file_exists($callbacksFile)) {
+            $content = file_get_contents($callbacksFile);
+            $callbacks = json_decode($content, true);
+            echo json_encode($callbacks ?: []);
+        } else {
+            echo json_encode([]);
         }
+        exit;
     }
 }
 
-// Add new callback
-$callbacks[] = $callback;
-
-// Write back to file
-if (file_put_contents($callbacksFile, json_encode($callbacks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX)) {
-    // Send email notification
-    send_email_notification($callback);
+// Handle POST request - save callback
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $data = $_POST;
     
-    echo json_encode([
-        'success' => true,
-        'message' => 'Callback request received successfully! We will contact you soon.',
-        'id' => $callback['id']
-    ]);
-} else {
-    echo json_encode([
-        'success' => false,
-        'message' => 'Error saving callback request. Please try again.'
-    ]);
+    // Validate required fields
+    if (empty($data['fullName']) || empty($data['mobileNumber']) || empty($data['email'])) {
+        echo json_encode(['success' => false, 'message' => 'Please fill all required fields']);
+        exit;
+    }
+    
+    // Sanitize input data
+    $callback = [
+        'id' => uniqid('CB_', true),
+        'timestamp' => date('Y-m-d H:i:s'),
+        'date' => date('Y-m-d'),
+        'fullName' => sanitize_input($data['fullName']),
+        'mobileNumber' => sanitize_input($data['mobileNumber']),
+        'email' => sanitize_input($data['email']),
+        'businessName' => sanitize_input($data['businessName'] ?? ''),
+        'requirement' => sanitize_input($data['requirement'] ?? ''),
+        'message' => sanitize_input($data['message'] ?? ''),
+        'status' => 'pending',
+        'notes' => ''
+    ];
+    
+    // Read existing callbacks
+    $callbacks = [];
+    if (file_exists($callbacksFile)) {
+        $content = file_get_contents($callbacksFile);
+        if (!empty($content)) {
+            $callbacks = json_decode($content, true);
+            if (!is_array($callbacks)) {
+                $callbacks = [];
+            }
+        }
+    }
+    
+    // Add new callback
+    $callbacks[] = $callback;
+    
+    // Write back to file with proper permissions
+    $json = json_encode($callbacks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    
+    if (file_put_contents($callbacksFile, $json, LOCK_EX)) {
+        // Send email notification
+        send_email_notification($callback);
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'Callback request received successfully! We will contact you soon.',
+            'id' => $callback['id']
+        ]);
+    } else {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Error saving callback request. Please check file permissions.'
+        ]);
+    }
+    exit;
 }
 
 // Sanitize input function
@@ -100,3 +120,4 @@ function send_email_notification($callback) {
     // mail($to, $subject, $message, $headers);
 }
 ?>
+
