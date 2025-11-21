@@ -864,3 +864,114 @@
     });
 
 })();
+
+/**
+ * CALLBACK FORM HANDLER
+ */
+document.addEventListener('DOMContentLoaded', function() {
+    const contactForm = document.getElementById('contactForm');
+    if (!contactForm) return;
+    
+    contactForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        // Get form data
+        const formData = new FormData(this);
+        
+        // Show loading state
+        const submitBtn = this.querySelector('.btn-submit');
+        const originalText = submitBtn.innerText;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+        
+        try {
+            const response = await fetch('process_callback.php', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Show success message
+                showNotification('Success! ' + data.message, 'success');
+                
+                // Store in localStorage as backup
+                const callbacks = JSON.parse(localStorage.getItem('callbacks') || '[]');
+                callbacks.push({
+                    id: data.id,
+                    timestamp: new Date().toLocaleString(),
+                    date: new Date().toISOString().split('T')[0],
+                    fullName: formData.get('fullName'),
+                    mobileNumber: formData.get('mobileNumber'),
+                    email: formData.get('email'),
+                    businessName: formData.get('businessName'),
+                    requirement: formData.get('requirement'),
+                    message: formData.get('message'),
+                    status: 'pending'
+                });
+                localStorage.setItem('callbacks', JSON.stringify(callbacks));
+                
+                // Reset form
+                this.reset();
+                
+                // Scroll to top
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+                showNotification('Error: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showNotification('Error submitting form. Please try again.', 'error');
+        } finally {
+            // Restore button state
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }
+    });
+});
+
+// Notification helper function
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.innerHTML = `
+        <div style="
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${type === 'success' ? '#d4edda' : '#f8d7da'};
+            color: ${type === 'success' ? '#155724' : '#721c24'};
+            padding: 15px 20px;
+            border-radius: 5px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.3s ease;
+        ">
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+            <span>${message}</span>
+        </div>
+        <style>
+            @keyframes slideIn {
+                from {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+        </style>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideIn 0.3s ease reverse';
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+}
