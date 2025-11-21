@@ -6,12 +6,30 @@ ini_set('log_errors', 1);
 
 // Set response header
 header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
 
 // Path to callbacks log file
 $callbacksFile = __DIR__ . '/callbacks.json';
+$logsDir = __DIR__ . '/logs';
+
+// Create logs directory if it doesn't exist
+if (!is_dir($logsDir)) {
+    mkdir($logsDir, 0777, true);
+}
+
+// Log file for debugging
+$logFile = $logsDir . '/callback_' . date('Y-m-d') . '.log';
+
+function log_message($message) {
+    global $logFile;
+    $timestamp = date('Y-m-d H:i:s');
+    file_put_contents($logFile, "[$timestamp] $message\n", FILE_APPEND);
+}
 
 // Handle GET request - retrieve all callbacks
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    log_message("GET request received");
+    
     if (isset($_GET['action']) && $_GET['action'] === 'get_all') {
         if (file_exists($callbacksFile)) {
             $content = file_get_contents($callbacksFile);
@@ -26,10 +44,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 // Handle POST request - save callback
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    log_message("POST request received");
+    
     $data = $_POST;
+    
+    log_message("Form data: " . json_encode($data));
     
     // Validate required fields
     if (empty($data['fullName']) || empty($data['mobileNumber']) || empty($data['email'])) {
+        log_message("Validation failed - missing required fields");
         echo json_encode(['success' => false, 'message' => 'Please fill all required fields']);
         exit;
     }
@@ -49,6 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'notes' => ''
     ];
     
+    log_message("Callback created: " . json_encode($callback));
+    
     // Read existing callbacks
     $callbacks = [];
     if (file_exists($callbacksFile)) {
@@ -59,7 +84,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $callbacks = [];
             }
         }
+    } else {
+        log_message("callbacks.json does not exist, creating new file");
     }
+    
+    log_message("Existing callbacks: " . count($callbacks));
     
     // Add new callback
     $callbacks[] = $callback;
@@ -67,8 +96,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Write back to file with proper permissions
     $json = json_encode($callbacks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     
-    if (file_put_contents($callbacksFile, $json, LOCK_EX)) {
-        // Send email notification
+    // Ensure file directory is writable
+    $dir = dirname($callbacksFile);
+    if (!is_dir($dir)) {
+        mkdir($dir, 0777, true);
+    }
+    
+    // Try to write the file
+    $writeResult = file_put_contents($callbacksFile, $json, LOCK_EX);
+    
+    if ($writeResult !== false) {
+        // Make sure file is readable/writable
+        chmod($callbacksFile, 0666);
+        
+        log_message("Callback saved successfully. File size: " . filesize($callbacksFile) . " bytes");
+        
+        // Send email notification (optional)
         send_email_notification($callback);
         
         echo json_encode([
@@ -77,9 +120,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'id' => $callback['id']
         ]);
     } else {
+        log_message("ERROR: Failed to write to callbacks.json");
+        log_message("File path: " . $callbacksFile);
+        log_message("Directory writable: " . (is_writable(dirname($callbacksFile)) ? 'YES' : 'NO'));
+        
         echo json_encode([
             'success' => false,
-            'message' => 'Error saving callback request. Please check file permissions.'
+            'message' => 'Error saving callback. File write failed. Check permissions.'
         ]);
     }
     exit;
@@ -106,8 +153,7 @@ function send_email_notification($callback) {
         <tr><td><b>Email</b></td><td>" . $callback['email'] . "</td></tr>
         <tr><td><b>Business Name</b></td><td>" . $callback['businessName'] . "</td></tr>
         <tr><td><b>Requirement</b></td><td>" . $callback['requirement'] . "</td></tr>
-        <tr><td><b>Message</b></td><td>" . $callback['message'] . "</td></tr>
-        <tr><td><b>Status</b></td><td>" . $callback['status'] . "</td></tr>
+        <tr><td><b>Message</b></td><td>" . nl2br($callback['message']) . "</td></tr>
     </table>
     </body></html>
     ";
@@ -116,8 +162,11 @@ function send_email_notification($callback) {
     $headers .= "Content-type: text/html; charset=UTF-8\r\n";
     $headers .= "From: noreply@abhyuday.com\r\n";
     
-    // Uncomment to enable email sending
+    // Uncomment to enable email sending (requires mail server configured)
     // mail($to, $subject, $message, $headers);
 }
+
+log_message("Script ended");
 ?>
+
 
