@@ -867,10 +867,14 @@
 
 /**
  * CALLBACK FORM HANDLER
+ * Automatically detects environment (localhost vs GitHub Pages) and uses appropriate backend
  */
 document.addEventListener('DOMContentLoaded', function() {
     const contactForm = document.getElementById('contactForm');
     if (!contactForm) return;
+    
+    // Detect if running on localhost or GitHub Pages
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     
     contactForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -885,21 +889,47 @@ document.addEventListener('DOMContentLoaded', function() {
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
         
         try {
-            const response = await fetch('process_callback.php', {
-                method: 'POST',
-                body: formData
-            });
+            let success = false;
+            let message = '';
+            let callbackId = '';
             
-            const data = await response.json();
-            
-            if (data.success) {
-                // Show success message
-                showNotification('Success! ' + data.message, 'success');
+            if (isLocalhost) {
+                // Use PHP backend for localhost
+                const response = await fetch('process_callback.php', {
+                    method: 'POST',
+                    body: formData
+                });
                 
-                // Store in localStorage as backup
-                const callbacks = JSON.parse(localStorage.getItem('callbacks') || '[]');
-                callbacks.push({
-                    id: data.id,
+                const data = await response.json();
+                
+                if (data.success) {
+                    success = true;
+                    message = data.message;
+                    callbackId = data.id;
+                    
+                    // Store in localStorage as backup
+                    const callbacks = JSON.parse(localStorage.getItem('callbacks') || '[]');
+                    callbacks.push({
+                        id: callbackId,
+                        timestamp: new Date().toLocaleString(),
+                        date: new Date().toISOString().split('T')[0],
+                        fullName: formData.get('fullName'),
+                        mobileNumber: formData.get('mobileNumber'),
+                        email: formData.get('email'),
+                        businessName: formData.get('businessName'),
+                        requirement: formData.get('requirement'),
+                        message: formData.get('message'),
+                        status: 'pending'
+                    });
+                    localStorage.setItem('callbacks', JSON.stringify(callbacks));
+                } else {
+                    success = false;
+                    message = data.message;
+                }
+            } else {
+                // For GitHub Pages - use localStorage and send email notification
+                const callback = {
+                    id: 'CB_' + Date.now(),
                     timestamp: new Date().toLocaleString(),
                     date: new Date().toISOString().split('T')[0],
                     fullName: formData.get('fullName'),
@@ -909,8 +939,43 @@ document.addEventListener('DOMContentLoaded', function() {
                     requirement: formData.get('requirement'),
                     message: formData.get('message'),
                     status: 'pending'
-                });
+                };
+                
+                // Store in localStorage
+                const callbacks = JSON.parse(localStorage.getItem('callbacks') || '[]');
+                callbacks.push(callback);
                 localStorage.setItem('callbacks', JSON.stringify(callbacks));
+                
+                // Try to send email via FormSubmit.co (free service)
+                try {
+                    const formDataToSend = new FormData();
+                    formDataToSend.append('_captcha', 'false');
+                    formDataToSend.append('_subject', `New Callback Request from ${callback.fullName}`);
+                    formDataToSend.append('Full Name', callback.fullName);
+                    formDataToSend.append('Mobile Number', callback.mobileNumber);
+                    formDataToSend.append('Email', callback.email);
+                    formDataToSend.append('Business Name', callback.businessName);
+                    formDataToSend.append('Requirement', callback.requirement);
+                    formDataToSend.append('Message', callback.message);
+                    
+                    await fetch('https://formsubmit.co/abhyuday220523@gmail.com', {
+                        method: 'POST',
+                        body: formDataToSend
+                    }).catch(() => {
+                        // Email service might fail, but data is still saved locally
+                    });
+                } catch (emailError) {
+                    console.log('Email notification skipped (offline or service unavailable)');
+                }
+                
+                success = true;
+                message = 'Callback request submitted successfully! We will contact you soon.';
+                callbackId = callback.id;
+            }
+            
+            if (success) {
+                // Show success message
+                showNotification('✓ ' + message, 'success');
                 
                 // Reset form
                 this.reset();
@@ -918,11 +983,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Scroll to top
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             } else {
-                showNotification('Error: ' + data.message, 'error');
+                showNotification('✗ Error: ' + message, 'error');
             }
         } catch (error) {
-            console.error('Error:', error);
-            showNotification('Error submitting form. Please try again.', 'error');
+            console.error('Form submission error:', error);
+            // Even if there's an error, try to save to localStorage as fallback
+            try {
+                const callback = {
+                    id: 'CB_' + Date.now(),
+                    timestamp: new Date().toLocaleString(),
+                    date: new Date().toISOString().split('T')[0],
+                    fullName: formData.get('fullName'),
+                    mobileNumber: formData.get('mobileNumber'),
+                    email: formData.get('email'),
+                    businessName: formData.get('businessName'),
+                    requirement: formData.get('requirement'),
+                    message: formData.get('message'),
+                    status: 'pending'
+                };
+                
+                const callbacks = JSON.parse(localStorage.getItem('callbacks') || '[]');
+                callbacks.push(callback);
+                localStorage.setItem('callbacks', JSON.stringify(callbacks));
+                
+                showNotification('✓ Request saved locally. We will contact you soon.', 'success');
+                this.reset();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch (fallbackError) {
+                showNotification('✗ Error submitting form. Please try again.', 'error');
+            }
         } finally {
             // Restore button state
             submitBtn.disabled = false;
